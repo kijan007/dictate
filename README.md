@@ -72,6 +72,7 @@ Default hotkey is **F9**. Hold it, speak, release. The transcription is typed at
 
 In **Settings** you can change:
 
+- **Language** — the interface in English or German (*Deutsch*); the default follows the system language. Switching applies at once
 - **Provider** — Groq, OpenAI, or Local (Parakeet DE)
 - **Mode** — push-to-talk (hold) or toggle (tap to start / tap to stop)
 - **Hotkey** — F1–F12, modifier keys (Ctrl / Alt / Shift / Super), or one of the Logitech-style mouse side buttons (`MOUSE BACK`, `MOUSE FORWARD`, `MOUSE SIDE`, `MOUSE EXTRA`, `MOUSE TASK`). On Linux the mouse buttons need the evdev backend (i.e. `input`-group setup complete). On Windows the two thumb buttons arrive as `MOUSE BACK` / `MOUSE FORWARD` (`MOUSE SIDE` / `MOUSE EXTRA` are the same two buttons under their Linux names); `MOUSE TASK` is Linux-only. Avoid the Super / Windows key on Windows: releasing it opens the Start menu.
@@ -180,6 +181,7 @@ The CLI variant only works on X11 for the reasons described above. Use `gui.py` 
 
 ```json
 {
+  "ui_language": "auto",
   "provider": "groq",
   "api_key": "gsk_...",
   "openai_api_key": "sk-...",

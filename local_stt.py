@@ -11,6 +11,7 @@ from typing import Callable, Optional
 import numpy as np
 
 import core
+from i18n import tr
 
 # huggingface_hub warns on Windows that its cache cannot use symlinks; we
 # download straight into MODEL_DIR, so the cache layout does not matter.
@@ -51,7 +52,7 @@ def download_model(progress_cb: Optional[Callable[[str], None]] = None) -> None:
         ) from e
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     if progress_cb:
-        progress_cb("Downloading model (~640 MB, one-time) ...")
+        progress_cb(tr("Downloading model (~640 MB, one-time) ..."))
     snapshot_download(
         repo_id=MODEL_REPO,
         revision=MODEL_REVISION,
@@ -59,7 +60,7 @@ def download_model(progress_cb: Optional[Callable[[str], None]] = None) -> None:
         allow_patterns=MODEL_FILES,
     )
     if progress_cb:
-        progress_cb("Model downloaded.")
+        progress_cb(tr("Model downloaded."))
 
 
 class LocalRecognizer:

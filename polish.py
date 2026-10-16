@@ -27,6 +27,7 @@ from typing import Callable, Optional
 import requests
 
 import core
+from i18n import tr
 
 # ---------------------------------------------------------------------------
 # Pinned llama.cpp release build. Bump deliberately; every user then gets the
@@ -223,7 +224,7 @@ def _download(url: str, dest: Path, progress_cb: Optional[Callable[[str], None]]
             last_err = e
             core.log.warning("download of %s interrupted (attempt %d): %s", label, attempt + 1, e)
             if progress_cb:
-                progress_cb(f"{label}: connection lost, resuming ...")
+                progress_cb(tr("{label}: connection lost, resuming ...", label=label))
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"download of {label} failed after retries: {last_err}")
 
@@ -281,7 +282,7 @@ def download_runtime(device: str, progress_cb: Optional[Callable[[str], None]] =
         if not archive.exists():
             _download(_RELEASE_URL + asset, archive, progress_cb, f"llama.cpp {asset}")
         if progress_cb:
-            progress_cb(f"Unpacking {asset} ...")
+            progress_cb(tr("Unpacking {asset} ...", asset=asset))
         _extract(archive, into)
         archive.unlink()
     binary = server_binary(device)
@@ -319,7 +320,7 @@ def download_model(model_id: str, progress_cb: Optional[Callable[[str], None]] =
                 progress_cb(f"{m['file']}: {min(have, total):.0f} / {total} MB")
 
     if progress_cb:
-        progress_cb(f"{m['file']}: starting ...")
+        progress_cb(tr("{file}: starting ...", file=m["file"]))
     threading.Thread(target=watch, daemon=True).start()
     try:
         hf_hub_download(repo_id=m["repo"], filename=m["file"], revision=m["revision"],
@@ -336,7 +337,7 @@ def download_all(cfg, progress_cb: Optional[Callable[[str], None]] = None) -> No
     need = download_size_mb(cfg)
     free = free_space_mb()
     if need and free < need + 500:
-        raise RuntimeError(f"not enough disk space: {need} MB needed, {free} MB free")
+        raise RuntimeError(tr("not enough disk space: {need} MB needed, {free} MB free", need=need, free=free))
     device = cfg.get("polish_device", "auto")
     model_id = cfg.get("polish_model", DEFAULT_MODEL)
     if server_binary(device) is None:
@@ -344,7 +345,7 @@ def download_all(cfg, progress_cb: Optional[Callable[[str], None]] = None) -> No
     if not model_installed(model_id):
         download_model(model_id, progress_cb)
     if progress_cb:
-        progress_cb("Installed.")
+        progress_cb(tr("Installed."))
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +446,7 @@ class Server:
         binary = server_binary(self.device)
         model = model_path(self.model_id)
         if binary is None or not model.exists():
-            raise RuntimeError("polishing runtime or model not installed")
+            raise RuntimeError(tr("polishing runtime or model not installed"))
         cmd = server_command(binary, model, self.port, self.device, self.threads)
         SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
         self._log = open(SERVER_LOG, "w", encoding="utf-8", errors="replace")
@@ -470,7 +471,7 @@ class Server:
             if proc is None:
                 return
             if proc.poll() is not None:
-                self._failed = f"llama-server exited with {proc.returncode} (see {SERVER_LOG})"
+                self._failed = tr("llama-server exited with {code} (see {log})", code=proc.returncode, log=SERVER_LOG)
                 core.log.error(self._failed)
                 self._ready.set()
                 return
@@ -580,10 +581,10 @@ def test_external(url: str, key: str = "", model: str = "", timeout: float = 5.0
         r.raise_for_status()
         names = [m.get("id", "") for m in r.json().get("data", [])]
     except Exception as e:
-        return False, f"No OpenAI-compatible server at {s.url}: {e}"
+        return False, tr("No OpenAI-compatible server at {url}: {err}", url=s.url, err=e)
     if s.model and names and s.model not in names:
-        return False, f"Server is up but has no model '{s.model}'. It offers: {', '.join(names[:8])}"
-    return True, f"Server is up. Models: {', '.join(names[:8]) or '(none listed)'}"
+        return False, tr("Server is up but has no model '{model}'. It offers: {names}", model=s.model, names=", ".join(names[:8]))
+    return True, tr("Server is up. Models: {names}", names=", ".join(names[:8]) or tr("(none listed)"))
 
 
 _server = None
@@ -743,9 +744,9 @@ def polish(cfg, text: str, app: str = "", title: str = "", mode: str = "") -> st
     request fails; the caller then types the raw text."""
     s = get_server(cfg)
     if s is None:
-        raise RuntimeError("polishing is not installed")
+        raise RuntimeError(tr("polishing is not installed"))
     if not s.wait_ready(timeout=0.0):
-        raise RuntimeError("polishing model is still loading")
+        raise RuntimeError(tr("polishing model is still loading"))
     if s.error():
         raise RuntimeError(s.error())
     timeout = float(cfg.get("polish_timeout", DEFAULT_TIMEOUT))
@@ -754,5 +755,5 @@ def polish(cfg, text: str, app: str = "", title: str = "", mode: str = "") -> st
     out = s.chat(build_messages(cfg, text, app, title, mode), max_tokens=max_tokens, timeout=timeout)
     out = _clean(out)
     if not out:
-        raise RuntimeError("model returned nothing")
+        raise RuntimeError(tr("model returned nothing"))
     return out

@@ -22,6 +22,7 @@ from PyQt6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 import core
+from i18n import tr
 
 DEAD_ZONE = 60   # pointer must move this far (px / mouse counts) before a segment counts
 RING = 130       # radius of the drawn circle
@@ -227,7 +228,7 @@ class PieOverlay(QWidget):
         p.drawEllipse(c, DEAD_ZONE, DEAD_ZONE)
         p.setPen(white)
         p.drawText(QRectF(c.x() - DEAD_ZONE, c.y() - DEAD_ZONE, 2 * DEAD_ZONE, 2 * DEAD_ZONE),
-                   Qt.AlignmentFlag.AlignCenter, "Standard")
+                   Qt.AlignmentFlag.AlignCenter, tr("Standard"))
         # Pointer dot, clamped to the ring so it stays visible.
         dx, dy = self.vec
         d = math.hypot(dx, dy)

@@ -16,8 +16,10 @@ from PyQt6.QtWidgets import (
 from pynput import keyboard, mouse
 
 import core
+import i18n
 import pie
 import polish
+from i18n import tr
 
 # Arrow keys choose a pie-menu mode while the hotkey is held.
 ARROW_KEYS = {keyboard.Key.up: "up", keyboard.Key.down: "down",
@@ -113,25 +115,33 @@ class SettingsDialog(QDialog):
 
     def __init__(self, cfg, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Dictate — Settings")
+        self.setWindowTitle(tr("Dictate — Settings"))
         self.setMinimumWidth(600)
         self.cfg = dict(cfg)
 
         self.form = QFormLayout()
 
+        # --- UI language ---
+        self.lang_box = QComboBox()
+        for code, label in i18n.LANGUAGES:
+            self.lang_box.addItem(label, code)
+        i = self.lang_box.findData(self.cfg.get("ui_language", "auto"))
+        self.lang_box.setCurrentIndex(max(i, 0))
+        self.form.addRow(tr("Language:"), self.lang_box)
+
         # --- Provider selector ---
         self.provider_box = QComboBox()
         for pid, pdef in core.PROVIDERS.items():
-            self.provider_box.addItem(pdef["label"], pid)
+            self.provider_box.addItem(tr(pdef["label"]), pid)
         i = self.provider_box.findData(self.cfg.get("provider", core.DEFAULT_PROVIDER))
         self.provider_box.setCurrentIndex(max(i, 0))
         self.provider_box.currentIndexChanged.connect(self.on_provider_changed)
-        self.form.addRow("Provider:", self.provider_box)
+        self.form.addRow(tr("Provider:"), self.provider_box)
 
         # --- API key row (hidden when a local provider is selected) ---
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        show_btn = QPushButton("show")
+        show_btn = QPushButton(tr("show"))
         show_btn.setCheckable(True)
         show_btn.setMaximumWidth(60)
         show_btn.toggled.connect(
@@ -151,7 +161,7 @@ class SettingsDialog(QDialog):
         # --- Yorik URL row (shown only for the Yorik provider) ---
         self.yorik_url_edit = QLineEdit(self.cfg.get("yorik_url", core.DEFAULT_CONFIG["yorik_url"]))
         self.yorik_url_edit.setPlaceholderText("http://yorik.local:8000")
-        self.form.addRow("Yorik URL:", self.yorik_url_edit)
+        self.form.addRow(tr("Yorik URL:"), self.yorik_url_edit)
 
         # Per-provider key cache — only providers that actually take a key.
         self._keys = {
@@ -161,11 +171,11 @@ class SettingsDialog(QDialog):
         }
 
         self.mode_box = QComboBox()
-        self.mode_box.addItem("Push-to-talk (hold key)", "ptt")
-        self.mode_box.addItem("Toggle (tap to start, tap to stop)", "toggle")
+        self.mode_box.addItem(tr("Push-to-talk (hold key)"), "ptt")
+        self.mode_box.addItem(tr("Toggle (tap to start, tap to stop)"), "toggle")
         i = self.mode_box.findData(self.cfg.get("mode", "ptt"))
         self.mode_box.setCurrentIndex(max(i, 0))
-        self.form.addRow("Mode:", self.mode_box)
+        self.form.addRow(tr("Mode:"), self.mode_box)
 
         self.key_box = QComboBox()
         for k in core.KEY_MAP:
@@ -174,27 +184,27 @@ class SettingsDialog(QDialog):
             self.key_box.addItem(k.upper().replace("_", " "), k)
         i = self.key_box.findData(self.cfg.get("key", "f9"))
         self.key_box.setCurrentIndex(max(i, 0))
-        self.form.addRow("Hotkey:", self.key_box)
+        self.form.addRow(tr("Hotkey:"), self.key_box)
 
         self.model_box = QComboBox()
-        self.form.addRow("Model:", self.model_box)
+        self.form.addRow(tr("Model:"), self.model_box)
 
         # --- Local-STT panel (shown only when a local provider is selected) ---
         import os as _os
         cpu_max = max(1, _os.cpu_count() or 1)
         self.local_status_label = QLabel()
-        self.form.addRow("Local model:", self.local_status_label)
+        self.form.addRow(tr("Local model:"), self.local_status_label)
         self.local_download_btn = QPushButton()
         self.local_download_btn.clicked.connect(self.on_download_model)
         self.form.addRow("", self.local_download_btn)
         self.local_threads_box = QSpinBox()
         self.local_threads_box.setRange(1, cpu_max)
         self.local_threads_box.setValue(int(self.cfg.get("local_stt_num_threads", min(4, cpu_max))))
-        self.local_threads_box.setToolTip(
+        self.local_threads_box.setToolTip(tr(
             "sherpa-onnx CPU thread count. 4 = best latency/resource balance on\n"
             "this system; more brings little. Changing this rebuilds the recognizer."
-        )
-        self.form.addRow("CPU threads:", self.local_threads_box)
+        ))
+        self.form.addRow(tr("CPU threads:"), self.local_threads_box)
 
         self.threshold_box = QDoubleSpinBox()
         self.threshold_box.setRange(0.0, 5.0)
@@ -202,15 +212,15 @@ class SettingsDialog(QDialog):
         self.threshold_box.setDecimals(1)
         self.threshold_box.setSuffix(" s")
         self.threshold_box.setValue(float(self.cfg.get("threshold", 0.0)))
-        self.threshold_box.setToolTip(
+        self.threshold_box.setToolTip(tr(
             "Recording starts immediately on press; release sends for transcription.\n"
             "If you release before this duration, the recording is discarded. 0 =\n"
             "always send. Recommended ~2.0s when bound to Ctrl/Alt/Shift so brief\n"
             "taps and shortcuts don't transcribe."
-        )
-        self.form.addRow("Min hold to send:", self.threshold_box)
+        ))
+        self.form.addRow(tr("Min hold to send:"), self.threshold_box)
 
-        self.test_btn = QPushButton("Test API key")
+        self.test_btn = QPushButton(tr("Test API key"))
         self.test_btn.clicked.connect(self.on_test)
         self.form.addRow("", self.test_btn)
 
@@ -231,8 +241,8 @@ class SettingsDialog(QDialog):
         v1.addStretch()
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(page1, "Transcription")
-        self.tabs.addTab(self._build_polish_page(), "Written text")
+        self.tabs.addTab(page1, tr("Transcription"))
+        self.tabs.addTab(self._build_polish_page(), tr("Written text"))
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
@@ -254,60 +264,60 @@ class SettingsDialog(QDialog):
         f = QFormLayout()
         cfg = self.cfg
 
-        self.pl_enabled = QCheckBox("Turn the dictation into written text before typing it")
+        self.pl_enabled = QCheckBox(tr("Turn the dictation into written text before typing it"))
         self.pl_enabled.setChecked(bool(cfg.get("polish_enabled", False)))
         self.pl_enabled.toggled.connect(self.on_polish_toggled)
-        self.pl_enabled.setToolTip(
+        self.pl_enabled.setToolTip(tr(
             "Optional. A local Gemma 4 model (llama.cpp) removes filler words and\n"
             "false starts, fixes punctuation and spelling, and keeps your wording.\n"
             "If the model is slow or missing, the raw transcript is typed instead."
-        )
+        ))
         f.addRow(self.pl_enabled)
         self.pl_form = f
 
         self.pl_backend_box = QComboBox()
-        self.pl_backend_box.addItem("Built-in — Dictate downloads llama.cpp and a Gemma 4 model", "builtin")
-        self.pl_backend_box.addItem("A server that is already running (Ollama, LM Studio, llama-server, vLLM …)", "external")
+        self.pl_backend_box.addItem(tr("Built-in — Dictate downloads llama.cpp and a Gemma 4 model"), "builtin")
+        self.pl_backend_box.addItem(tr("A server that is already running (Ollama, LM Studio, llama-server, vLLM …)"), "external")
         i = self.pl_backend_box.findData(cfg.get("polish_backend", "builtin"))
         self.pl_backend_box.setCurrentIndex(max(i, 0))
         self.pl_backend_box.currentIndexChanged.connect(self._refresh_polish_status)
-        f.addRow("Model source:", self.pl_backend_box)
+        f.addRow(tr("Model source:"), self.pl_backend_box)
 
         self.pl_ext_url = QLineEdit(cfg.get("polish_external_url") or core.DEFAULT_CONFIG["polish_external_url"])
         self.pl_ext_url.setPlaceholderText("http://127.0.0.1:11434/v1")
-        self.pl_ext_url.setToolTip(
+        self.pl_ext_url.setToolTip(tr(
             "Base URL of an OpenAI-compatible server, usually ending in /v1.\n"
             "Ollama: http://127.0.0.1:11434/v1   LM Studio: http://127.0.0.1:1234/v1\n"
             "llama-server: http://127.0.0.1:8080/v1   vLLM: http://host:8000/v1\n"
             "Text leaves this machine only if the URL points to another one."
-        )
-        f.addRow("Server URL:", self.pl_ext_url)
+        ))
+        f.addRow(tr("Server URL:"), self.pl_ext_url)
         self.pl_ext_model = QLineEdit(cfg.get("polish_external_model") or "")
-        self.pl_ext_model.setPlaceholderText("e.g. gemma4:e2b — leave empty if the server serves one model")
-        f.addRow("Model name:", self.pl_ext_model)
+        self.pl_ext_model.setPlaceholderText(tr("e.g. gemma4:e2b — leave empty if the server serves one model"))
+        f.addRow(tr("Model name:"), self.pl_ext_model)
         self.pl_ext_key = QLineEdit(cfg.get("polish_external_key") or "")
         self.pl_ext_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pl_ext_key.setPlaceholderText("optional")
-        f.addRow("API key:", self.pl_ext_key)
-        self.pl_ext_test_btn = QPushButton("Test connection")
+        self.pl_ext_key.setPlaceholderText(tr("optional"))
+        f.addRow(tr("API key:"), self.pl_ext_key)
+        self.pl_ext_test_btn = QPushButton(tr("Test connection"))
         self.pl_ext_test_btn.clicked.connect(self.on_test_external)
         f.addRow("", self.pl_ext_test_btn)
 
         self.pl_model_box = QComboBox()
         for mid, m in polish.MODELS.items():
-            self.pl_model_box.addItem(m["label"], mid)
+            self.pl_model_box.addItem(tr(m["label"]), mid)
         i = self.pl_model_box.findData(cfg.get("polish_model", polish.DEFAULT_MODEL))
         self.pl_model_box.setCurrentIndex(max(i, 0))
         self.pl_model_box.currentIndexChanged.connect(self._refresh_polish_status)
-        f.addRow("Model:", self.pl_model_box)
+        f.addRow(tr("Model:"), self.pl_model_box)
 
         self.pl_device_box = QComboBox()
         for did, label in polish.DEVICES:
-            self.pl_device_box.addItem(label, did)
+            self.pl_device_box.addItem(tr(label), did)
         i = self.pl_device_box.findData(cfg.get("polish_device", "auto"))
         self.pl_device_box.setCurrentIndex(max(i, 0))
         self.pl_device_box.currentIndexChanged.connect(self._refresh_polish_status)
-        self.pl_device_box.setToolTip(
+        self.pl_device_box.setToolTip(tr(
             "Where llama.cpp runs the model.\n"
             "GPU: much faster, usually well under a second per dictation; the model\n"
             "    stays in VRAM (about 2.5 GB for E2B) while Dictate runs.\n"
@@ -317,15 +327,15 @@ class SettingsDialog(QDialog):
             "Auto picks the NVIDIA build when an NVIDIA driver is present, else CPU.\n"
             "Changing this downloads the matching llama.cpp build (CUDA ~1.3 GB,\n"
             "Vulkan ~150 MB, CPU ~30 MB) and restarts the model."
-        )
-        f.addRow("Run on:", self.pl_device_box)
+        ))
+        f.addRow(tr("Run on:"), self.pl_device_box)
 
         import os as _os
         self.pl_threads_box = QSpinBox()
         self.pl_threads_box.setRange(1, max(1, _os.cpu_count() or 1))
         self.pl_threads_box.setValue(int(cfg.get("polish_threads", polish.DEFAULT_THREADS)))
-        self.pl_threads_box.setToolTip("CPU threads for llama-server. Only matters when running on the CPU.")
-        f.addRow("CPU threads:", self.pl_threads_box)
+        self.pl_threads_box.setToolTip(tr("CPU threads for llama-server. Only matters when running on the CPU."))
+        f.addRow(tr("CPU threads:"), self.pl_threads_box)
 
         self.pl_timeout_box = QDoubleSpinBox()
         self.pl_timeout_box.setRange(1.0, 60.0)
@@ -333,55 +343,57 @@ class SettingsDialog(QDialog):
         self.pl_timeout_box.setDecimals(0)
         self.pl_timeout_box.setSuffix(" s")
         self.pl_timeout_box.setValue(float(cfg.get("polish_timeout", polish.DEFAULT_TIMEOUT)))
-        self.pl_timeout_box.setToolTip("If the model takes longer than this, the raw transcript is typed.")
-        f.addRow("Give up after:", self.pl_timeout_box)
+        self.pl_timeout_box.setToolTip(tr("If the model takes longer than this, the raw transcript is typed."))
+        f.addRow(tr("Give up after:"), self.pl_timeout_box)
 
         self.pl_status_label = QLabel()
         self.pl_status_label.setWordWrap(True)
-        f.addRow("Runtime + model:", self.pl_status_label)
-        self.pl_download_btn = QPushButton("Download")
+        f.addRow(tr("Runtime + model:"), self.pl_status_label)
+        self.pl_download_btn = QPushButton(tr("Download"))
         self.pl_download_btn.clicked.connect(self.on_download_polish)
         f.addRow("", self.pl_download_btn)
         v.addLayout(f)
 
-        v.addWidget(QLabel("Names and terms — one per line (optional). Fixes words the recognizer spells by sound:"))
+        lbl = QLabel(tr("Names and terms — one per line (optional). Fixes words the recognizer spells by sound:"))
+        lbl.setWordWrap(True)
+        v.addWidget(lbl)
         self.pl_vocab_edit = QPlainTextEdit(cfg.get("polish_vocabulary", "") or "")
         self.pl_vocab_edit.setPlaceholderText("Dirk Winiecki\nParakeet\nllama.cpp")
         self.pl_vocab_edit.setMaximumHeight(70)
         v.addWidget(self.pl_vocab_edit)
 
-        v.addWidget(QLabel("How you write — paste a few of your own texts (optional):"))
+        v.addWidget(QLabel(tr("How you write — paste a few of your own texts (optional):")))
         self.pl_style_edit = QPlainTextEdit(cfg.get("polish_style", "") or "")
-        self.pl_style_edit.setPlaceholderText("Your own messages, posts or mails. The model matches this voice.")
+        self.pl_style_edit.setPlaceholderText(tr("Your own messages, posts or mails. The model matches this voice."))
         self.pl_style_edit.setMaximumHeight(110)
         v.addWidget(self.pl_style_edit)
 
-        lbl = QLabel("Per window — one line each, \"word in window title = instructions\"; \"* = ...\" is the default:")
+        lbl = QLabel(tr("Per window — one line each, \"word in window title = instructions\"; \"* = ...\" is the default:"))
         lbl.setWordWrap(True)
         v.addWidget(lbl)
         self.pl_profiles_edit = QPlainTextEdit(self._profiles_to_text(cfg))
         self.pl_profiles_edit.setMaximumHeight(110)
-        self.pl_profiles_edit.setToolTip(
+        self.pl_profiles_edit.setToolTip(tr(
             "The word on the left is looked for in the title and program name of the\n"
             "window that will receive the text (case does not matter). The first\n"
             "match wins. On GNOME Wayland the window title is not available, so\n"
             "the default line is used there."
-        )
+        ))
         v.addWidget(self.pl_profiles_edit)
 
-        lbl = QLabel("Pie menu — hold the hotkey and move the mouse towards a mode (or tap an arrow key). "
-                     "One per line, \"Name = instructions\"; empty = no pie menu:")
+        lbl = QLabel(tr("Pie menu — hold the hotkey and move the mouse towards a mode (or tap an arrow key). "
+                        "One per line, \"Name = instructions\"; empty = no pie menu:"))
         lbl.setWordWrap(True)
         v.addWidget(lbl)
         self.pl_modes_edit = QPlainTextEdit(self._modes_to_text(cfg))
         self.pl_modes_edit.setMaximumHeight(80)
-        self.pl_modes_edit.setToolTip(
+        self.pl_modes_edit.setToolTip(tr(
             "The first mode sits at 12 o'clock, the rest follow clockwise. No\n"
             "movement = plain written text. Only the direction counts, the pointer\n"
             "may leave the circle. Arrow keys pick the nearest segment; with a\n"
             "modifier as hotkey prefer the mouse, since Ctrl+Arrow also reaches\n"
             "the program you are typing into."
-        )
+        ))
         v.addWidget(self.pl_modes_edit)
         return page
 
@@ -418,6 +430,7 @@ class SettingsDialog(QDialog):
             if name.strip():
                 modes.append({"name": name.strip(), "instructions": instr.strip()})
         return {
+            "ui_language":     self.lang_box.currentData(),
             "polish_modes":    modes,
             "polish_enabled":  self.pl_enabled.isChecked(),
             "polish_backend":  self.pl_backend_box.currentData(),
@@ -436,11 +449,11 @@ class SettingsDialog(QDialog):
 
     def on_test_external(self):
         self.pl_ext_test_btn.setEnabled(False)
-        self.pl_ext_test_btn.setText("Testing...")
+        self.pl_ext_test_btn.setText(tr("Testing..."))
         QApplication.processEvents()
         ok, msg = polish.test_external(self.pl_ext_url.text(), self.pl_ext_key.text(), self.pl_ext_model.text())
         self.pl_ext_test_btn.setEnabled(True)
-        self.pl_ext_test_btn.setText("Test connection")
+        self.pl_ext_test_btn.setText(tr("Test connection"))
         (QMessageBox.information if ok else QMessageBox.warning)(self, "Dictate", msg)
 
     def _refresh_polish_status(self):
@@ -453,20 +466,20 @@ class SettingsDialog(QDialog):
         if ext:
             return
         if not polish.supported():
-            self.pl_status_label.setText("Not available on this platform.")
+            self.pl_status_label.setText(tr("Not available on this platform."))
             self.pl_download_btn.setEnabled(False)
             return
         pc = self._polish_cfg()
         if polish.installed(pc):
-            self.pl_status_label.setText(f"Installed and ready (llama.cpp {polish.LLAMA_BUILD}, {polish.resolve_device(pc['polish_device'])}).")
-            self.pl_download_btn.setText("Re-download")
+            self.pl_status_label.setText(tr("Installed and ready (llama.cpp {build}, {device}).",
+                                            build=polish.LLAMA_BUILD, device=polish.resolve_device(pc["polish_device"])))
+            self.pl_download_btn.setText(tr("Re-download"))
         else:
             need = polish.download_size_mb(pc)
             free = polish.free_space_mb()
-            self.pl_status_label.setText(
-                f"Not installed. Download is about {need / 1000:.1f} GB; {free / 1000:.1f} GB free on disk."
-            )
-            self.pl_download_btn.setText(f"Download (~{need / 1000:.1f} GB)")
+            self.pl_status_label.setText(tr("Not installed. Download is about {need} GB; {free} GB free on disk.",
+                                            need=f"{need / 1000:.1f}", free=f"{free / 1000:.1f}"))
+            self.pl_download_btn.setText(tr("Download (~{need} GB)", need=f"{need / 1000:.1f}"))
         self.pl_download_btn.setEnabled(True)
 
     def _ask_model_source(self):
@@ -477,16 +490,16 @@ class SettingsDialog(QDialog):
         need = polish.download_size_mb(pc) / 1000
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Dictate — written text")
-        box.setText("Written text needs a language model.")
-        box.setInformativeText(
+        box.setWindowTitle(tr("Dictate — written text"))
+        box.setText(tr("Written text needs a language model."))
+        box.setInformativeText(tr(
             "Do you already run one (Ollama, LM Studio, llama-server, vLLM …)? Then Dictate "
             "only sends requests to it and downloads nothing.\n\n"
-            f"Otherwise Dictate can download llama.cpp and Gemma 4 (about {need:.1f} GB) into "
-            f"{polish.RUNTIME_DIR.parent}. Nothing is downloaded until you confirm."
-        )
-        b_ext = box.addButton("Use my running server", QMessageBox.ButtonRole.AcceptRole)
-        b_dl = box.addButton(f"Download Gemma 4 ({need:.1f} GB)", QMessageBox.ButtonRole.ActionRole)
+            "Otherwise Dictate can download llama.cpp and Gemma 4 (about {need} GB) into "
+            "{dir}. Nothing is downloaded until you confirm.",
+            need=f"{need:.1f}", dir=polish.RUNTIME_DIR.parent))
+        b_ext = box.addButton(tr("Use my running server"), QMessageBox.ButtonRole.AcceptRole)
+        b_dl = box.addButton(tr("Download Gemma 4 ({need} GB)", need=f"{need:.1f}"), QMessageBox.ButtonRole.ActionRole)
         box.addButton(QMessageBox.StandardButton.Cancel)
         box.exec()
         if box.clickedButton() is b_ext:
@@ -516,11 +529,13 @@ class SettingsDialog(QDialog):
         free = polish.free_space_mb()
         if need:
             ok = QMessageBox.question(
-                self, "Dictate — download",
-                f"Download about {need / 1000:.1f} GB (llama.cpp {polish.LLAMA_BUILD} for "
-                f"{polish.resolve_device(pc['polish_device'])} and "
-                f"{polish.MODELS[pc['polish_model']]['label'].split(' (')[0]}) into\n"
-                f"{polish.RUNTIME_DIR.parent}?\n\n{free / 1000:.1f} GB free on that disk.",
+                self, tr("Dictate — download"),
+                tr("Download about {need} GB (llama.cpp {build} for {device} and {model}) into\n"
+                   "{dir}?\n\n{free} GB free on that disk.",
+                   need=f"{need / 1000:.1f}", build=polish.LLAMA_BUILD,
+                   device=polish.resolve_device(pc["polish_device"]),
+                   model=polish.MODELS[pc["polish_model"]]["label"].split(" (")[0],
+                   dir=polish.RUNTIME_DIR.parent, free=f"{free / 1000:.1f}"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -530,22 +545,22 @@ class SettingsDialog(QDialog):
 
     def _start_polish_download(self):
         self.pl_download_btn.setEnabled(False)
-        self.pl_download_btn.setText("Downloading...")
-        self.pl_status_label.setText("Starting download...")
+        self.pl_download_btn.setText(tr("Downloading..."))
+        self.pl_status_label.setText(tr("Starting download..."))
         pc = self._polish_cfg()
         threading.Thread(target=self._polish_download_worker, args=(pc,), daemon=True).start()
 
     def _polish_download_worker(self, pc):
         try:
             polish.download_all(pc, progress_cb=lambda m: self._pl_status.emit(m))
-            self._pl_done.emit(True, "Installed.")
+            self._pl_done.emit(True, tr("Installed."))
         except Exception as e:
-            self._pl_done.emit(False, f"Download failed: {e}")
+            self._pl_done.emit(False, tr("Download failed: {err}", err=e))
 
     def _on_polish_download_done(self, ok, msg):
         self.pl_status_label.setText(msg)
         self.pl_download_btn.setEnabled(True)
-        self.pl_download_btn.setText("Re-download" if ok else "Retry download")
+        self.pl_download_btn.setText(tr("Re-download") if ok else tr("Retry download"))
 
     def on_provider_changed(self):
         # Persist edits to the previously-shown provider's key (if any) before
@@ -561,7 +576,7 @@ class SettingsDialog(QDialog):
 
         # HTTP-provider widgets
         if not is_local:
-            self.api_key_label.setText(f"{pdef['label']} API key:")
+            self.api_key_label.setText(tr("{label} API key:", label=tr(pdef["label"])))
             self.api_key_edit.setText(self._keys.get(pid, ""))
             self.api_key_edit.setPlaceholderText(f"{pdef['key_prefix']}...")
 
@@ -577,19 +592,19 @@ class SettingsDialog(QDialog):
 
         # Hint text at the bottom of the dialog.
         if is_local:
-            self.hint.setText(
+            self.hint.setText(tr(
                 "Runs entirely offline on your CPU. Model: parakeet-primeline "
                 "(German, ~640 MB, CC-BY-4.0). Attribution: primeline · NVIDIA · "
                 "<a href='https://github.com/k2-fsa/sherpa-onnx'>k2-fsa/sherpa-onnx</a>."
-            )
+            ))
         elif pid == "openai":
-            self.hint.setText(
+            self.hint.setText(tr(
                 "OpenAI key: <a href='https://platform.openai.com/api-keys'>platform.openai.com/api-keys</a>."
-            )
+            ))
         else:
-            self.hint.setText(
+            self.hint.setText(tr(
                 "Get a free Groq API key at <a href='https://console.groq.com'>console.groq.com</a>."
-            )
+            ))
 
         self.refresh_model_box(pdef["default_model"])
         if is_local:
@@ -600,39 +615,39 @@ class SettingsDialog(QDialog):
             import local_stt
             installed = local_stt.model_installed()
         except ImportError:
-            self.local_status_label.setText(
+            self.local_status_label.setText(tr(
                 "sherpa-onnx not installed — run: pip install sherpa-onnx huggingface_hub"
-            )
+            ))
             self.local_download_btn.setEnabled(False)
-            self.local_download_btn.setText("Download model (~640 MB)")
+            self.local_download_btn.setText(tr("Download model (~640 MB)"))
             return
         if installed:
-            self.local_status_label.setText("Installed and ready.")
+            self.local_status_label.setText(tr("Installed and ready."))
             self.local_download_btn.setEnabled(True)
-            self.local_download_btn.setText("Re-download model")
+            self.local_download_btn.setText(tr("Re-download model"))
         else:
-            self.local_status_label.setText("Not installed.")
+            self.local_status_label.setText(tr("Not installed."))
             self.local_download_btn.setEnabled(True)
-            self.local_download_btn.setText("Download model (~640 MB)")
+            self.local_download_btn.setText(tr("Download model (~640 MB)"))
 
     def on_download_model(self):
         self.local_download_btn.setEnabled(False)
-        self.local_download_btn.setText("Downloading...")
-        self.local_status_label.setText("Starting download...")
+        self.local_download_btn.setText(tr("Downloading..."))
+        self.local_status_label.setText(tr("Starting download..."))
         threading.Thread(target=self._download_worker, daemon=True).start()
 
     def _download_worker(self):
         try:
             import local_stt
             local_stt.download_model(progress_cb=lambda m: self._dl_status.emit(m))
-            self._dl_done.emit(True, "Installed.")
+            self._dl_done.emit(True, tr("Installed."))
         except Exception as e:
-            self._dl_done.emit(False, f"Download failed: {e}")
+            self._dl_done.emit(False, tr("Download failed: {err}", err=e))
 
     def _on_download_done(self, ok, msg):
         self.local_status_label.setText(msg)
         self.local_download_btn.setEnabled(True)
-        self.local_download_btn.setText("Re-download model" if ok else "Retry download")
+        self.local_download_btn.setText(tr("Re-download model") if ok else tr("Retry download"))
 
     def refresh_model_box(self, preferred_model):
         pid = self.provider_box.currentData()
@@ -640,7 +655,7 @@ class SettingsDialog(QDialog):
         self.model_box.blockSignals(True)
         self.model_box.clear()
         for label, mid in pdef["models"]:
-            self.model_box.addItem(label, mid)
+            self.model_box.addItem(tr(label), mid)
         i = self.model_box.findData(preferred_model)
         if i < 0:
             i = self.model_box.findData(pdef["default_model"])
@@ -650,19 +665,19 @@ class SettingsDialog(QDialog):
     def on_test(self):
         key = self.api_key_edit.text().strip()
         if not key:
-            QMessageBox.warning(self, "Dictate", "Enter an API key first.")
+            QMessageBox.warning(self, "Dictate", tr("Enter an API key first."))
             return
         self.test_btn.setEnabled(False)
-        self.test_btn.setText("Testing...")
+        self.test_btn.setText(tr("Testing..."))
         QApplication.processEvents()
         ok = core.test_api_key(key, self.provider_box.currentData(),
                                cfg={"yorik_url": self.yorik_url_edit.text().strip()})
         self.test_btn.setEnabled(True)
-        self.test_btn.setText("Test API key")
+        self.test_btn.setText(tr("Test API key"))
         if ok:
-            QMessageBox.information(self, "Dictate", "API key works.")
+            QMessageBox.information(self, "Dictate", tr("API key works."))
         else:
-            QMessageBox.warning(self, "Dictate", "API key rejected.")
+            QMessageBox.warning(self, "Dictate", tr("API key rejected."))
 
     def values(self):
         # Sync current field back into the per-provider cache first, but only
@@ -748,7 +763,7 @@ class MainWindow(QMainWindow):
         self.bridge.hotkey_release.connect(self.on_release)
         self.bridge.other_press.connect(self.on_other_press)
         self.bridge.transcribed.connect(self.on_transcribed)
-        self.bridge.polishing.connect(lambda: self.set_status("transcribing", "Polishing..."))
+        self.bridge.polishing.connect(lambda: self.set_status("transcribing", tr("Polishing...")))
         self.bridge.mode_changed.connect(self.on_mode_changed)
         self.bridge.error.connect(self.on_error)
         self.bridge.notify.connect(self.on_notify)
@@ -779,12 +794,12 @@ class MainWindow(QMainWindow):
         title.setStyleSheet("font-size: 20px; font-weight: 600;")
         header.addWidget(title)
         header.addStretch()
-        self.settings_btn = QPushButton("Settings")
+        self.settings_btn = QPushButton(tr("Settings"))
         self.settings_btn.clicked.connect(lambda: self.open_settings())
         header.addWidget(self.settings_btn)
         v.addLayout(header)
 
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel(tr("Ready"))
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.status_label)
 
@@ -792,7 +807,8 @@ class MainWindow(QMainWindow):
         self.info_label.setStyleSheet("color: #666; padding: 2px 0;")
         v.addWidget(self.info_label)
 
-        v.addWidget(QLabel("Last transcription:"))
+        self.last_label = QLabel(tr("Last transcription:"))
+        v.addWidget(self.last_label)
         self.last = QTextEdit()
         self.last.setReadOnly(True)
         self.last.setMaximumHeight(110)
@@ -808,13 +824,13 @@ class MainWindow(QMainWindow):
             self.tray = QSystemTrayIcon(make_tray_icon(), self)
             self.tray.setToolTip("Dictate")
             menu = QMenu()
-            a_show = QAction("Show window", self)
+            self.a_show = a_show = QAction(tr("Show window"), self)
             a_show.triggered.connect(self.show_window)
-            self.a_polish = QAction("Written text (polish)", self)
+            self.a_polish = QAction(tr("Written text (polish)"), self)
             self.a_polish.setCheckable(True)
             self.a_polish.setChecked(bool(self.cfg.get("polish_enabled")))
             self.a_polish.toggled.connect(self.on_toggle_polish)
-            a_quit = QAction("Quit", self)
+            self.a_quit = a_quit = QAction(tr("Quit"), self)
             a_quit.triggered.connect(QApplication.quit)
             menu.addAction(a_show)
             menu.addAction(self.a_polish)
@@ -829,7 +845,7 @@ class MainWindow(QMainWindow):
                 # hops onto the GUI thread.
                 core.set_notifier(lambda m, u, t: self.bridge.notify.emit(m, u, t))
 
-        self.set_status("ready", "Ready")
+        self.set_status("ready", tr("Ready"))
         self.update_info()
         self.start_listener()
         self._preload_local_if_needed()
@@ -846,10 +862,10 @@ class MainWindow(QMainWindow):
             return
         try:
             if polish.get_server(self.cfg) is None:
-                self.set_status("error", "Polishing is on but not installed — open Settings")
+                self.set_status("error", tr("Polishing is on but not installed — open Settings"))
         except Exception as e:
             core.log.exception("could not start llama-server")
-            self.on_error(f"Polishing: {e}")
+            self.on_error(tr("Polishing: {err}", err=e))
 
     def on_toggle_polish(self, on):
         if on and not polish.installed(self.cfg):
@@ -884,30 +900,47 @@ class MainWindow(QMainWindow):
     def first_run(self):
         QMessageBox.information(
             self,
-            "Welcome to Dictate",
-            "Open Settings to pick a transcription provider:\n\n"
-            "  * Groq (cloud, free tier — console.groq.com)\n"
-            "  * OpenAI (cloud — platform.openai.com)\n"
-            "  * Local (offline, German, CPU — one-time 640 MB download)",
+            tr("Welcome to Dictate"),
+            tr("Open Settings to pick a transcription provider:\n\n"
+               "  * Groq (cloud, free tier — console.groq.com)\n"
+               "  * OpenAI (cloud — platform.openai.com)\n"
+               "  * Local (offline, German, CPU — one-time 640 MB download)"),
         )
         self.open_settings()
 
     def update_info(self):
-        mode_name = "Push-to-talk" if self.cfg["mode"] == "ptt" else "Toggle"
+        mode_name = tr("Push-to-talk") if self.cfg["mode"] == "ptt" else tr("Toggle")
         thr = float(self.cfg.get("threshold", 0.0))
-        thr_str = f"     Min hold: {thr:.1f}s" if thr > 0 else ""
-        pol = "     Written text: on" if self.cfg.get("polish_enabled") else ""
-        self.info_label.setText(
-            f"Mode: {mode_name}     Hotkey: {self.cfg['key'].upper()}     "
-            f"Model: {self.cfg['model']}{thr_str}{pol}"
-        )
+        thr_str = tr("     Min hold: {thr}s", thr=f"{thr:.1f}") if thr > 0 else ""
+        pol = tr("     Written text: on") if self.cfg.get("polish_enabled") else ""
+        self.info_label.setText(tr(
+            "Mode: {mode}     Hotkey: {key}     Model: {model}{thr}{pol}",
+            mode=mode_name, key=self.cfg["key"].upper(), model=self.cfg["model"], thr=thr_str, pol=pol,
+        ))
+
+    def retranslate(self):
+        """The UI language changed in Settings: redo the main window's texts.
+        Dialogs are built fresh each time, so they pick the language up."""
+        self.setWindowTitle("Dictate")
+        self.settings_btn.setText(tr("Settings"))
+        self.last_label.setText(tr("Last transcription:"))
+        if self.tray:
+            self.a_show.setText(tr("Show window"))
+            self.a_polish.setText(tr("Written text (polish)"))
+            self.a_quit.setText(tr("Quit"))
+        self.set_status("ready", tr("Ready"))
+        self.update_info()
 
     def open_settings(self, tab=0):
         dlg = SettingsDialog(self.cfg, self)
         dlg.tabs.setCurrentIndex(tab)
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            old_lang = i18n.language()
             self.cfg.update(dlg.values())
             core.save_config(self.cfg)
+            i18n.set_language(self.cfg.get("ui_language", "auto"))
+            if i18n.language() != old_lang:
+                self.retranslate()
             self.restart_listener()
             self.update_info()
             self._preload_local_if_needed()
@@ -989,14 +1022,14 @@ class MainWindow(QMainWindow):
             self._pie_stop()
             self._discard_take()
             self.recording_active = False
-            self.set_status("ready", "Cancelled (combo)")
+            self.set_status("ready", tr("Cancelled (combo)"))
             held = time.monotonic() - self.press_time
             core.log.info("cancelled after %.1fs by %s", held, self._last_other)
             # A shortcut like Ctrl+C cancels within a moment and needs no
             # message; a long hold was a dictation that just got thrown away.
             min_hold = float(self.cfg.get("threshold", 0.0))
             if held >= max(min_hold, 1.0):
-                core.notify(f"Recording cancelled after {held:.0f}s — another key or mouse button was pressed",
+                core.notify(tr("Recording cancelled after {held}s — another key or mouse button was pressed", held=f"{held:.0f}"),
                             urgency="critical", timeout_ms=5000)
 
     def on_release(self):
@@ -1012,7 +1045,7 @@ class MainWindow(QMainWindow):
             # Discard branch also blocks on recorder.stop() → freeze. Offload.
             self._discard_take()
             self.recording_active = False
-            self.set_status("ready", f"Discarded (held {duration:.1f}s)")
+            self.set_status("ready", tr("Discarded (held {dur}s)", dur=f"{duration:.1f}"))
             return
         self.stop_and_transcribe(mode)
         self.recording_active = False
@@ -1037,7 +1070,7 @@ class MainWindow(QMainWindow):
             self._pie.show_at(modes, pos)
             self._pie_timer.start()
         else:
-            pie.gnome_osd("Standard")
+            pie.gnome_osd(tr("Standard"))
 
     def _pie_stop(self):
         """Hotkey released or recording cancelled. Returns the chosen mode
@@ -1057,24 +1090,24 @@ class MainWindow(QMainWindow):
             self._pie.set_state(self.tracker.segment, self.tracker.vector())
 
     def on_mode_changed(self, seg):
-        name = self._pie_modes[seg]["name"] if seg is not None and seg < len(self._pie_modes) else "Standard"
+        name = self._pie_modes[seg]["name"] if seg is not None and seg < len(self._pie_modes) else tr("Standard")
         if self._pie is not None and self._pie.isVisible():
             self._pie.set_state(seg, self.tracker.vector())
         elif not pie.use_overlay():
             pie.gnome_osd(name)
-        self.set_status("recording", f"Recording... ({name})" if seg is not None else "Recording...")
+        self.set_status("recording", tr("Recording... ({name})", name=name) if seg is not None else tr("Recording..."))
 
     def start_recording(self) -> bool:
         if not core.provider_key(self.cfg):
-            self.set_status("error", "No API key — open Settings")
+            self.set_status("error", tr("No API key — open Settings"))
             return False
         try:
             self.recorder.start()
         except Exception as e:
             core.log.exception("could not open the microphone")
-            self.on_error(f"Microphone: {e}")
+            self.on_error(tr("Microphone: {err}", err=e))
             return False
-        self.set_status("recording", "Recording...")
+        self.set_status("recording", tr("Recording..."))
         return True
 
     def stop_and_transcribe(self, mode=None):
@@ -1082,7 +1115,7 @@ class MainWindow(QMainWindow):
         # which freezes the GUI ("main on_release doesn't return"). Move the
         # whole pipeline (stop + transcribe) onto a worker thread and update
         # status immediately from the main thread instead.
-        self.set_status("transcribing", "Transcribing...")
+        self.set_status("transcribing", tr("Transcribing..."))
         # Detach here, on the GUI thread: the take now belongs to the worker,
         # so pressing the hotkey again right away starts a fresh recording
         # instead of being swallowed by the worker's delayed stop.
@@ -1103,7 +1136,7 @@ class MainWindow(QMainWindow):
         audio = core.Recorder.finish(take)
         if audio is None:
             core.log.warning("no audio captured (mic delivered no frames)")
-            self.bridge.error.emit("No audio captured — check the microphone")
+            self.bridge.error.emit(tr("No audio captured — check the microphone"))
             return
         secs = len(audio) / core.SAMPLE_RATE
         peak = int(np.abs(audio).max())
@@ -1118,10 +1151,10 @@ class MainWindow(QMainWindow):
                       secs, peak, len(text or ""), time.monotonic() - t0)
         if not text:
             # Peak is out of 32768; a live mic with speech is in the thousands.
-            why = "microphone was silent" if peak < 300 else "no speech recognised"
+            why = tr("microphone was silent") if peak < 300 else tr("no speech recognised")
             if peak >= 300:
                 core.keep_failed_audio(audio)
-            self.bridge.error.emit(f"Nothing transcribed ({secs:.0f}s) — {why}")
+            self.bridge.error.emit(tr("Nothing transcribed ({secs}s) — {why}", secs=f"{secs:.0f}", why=why))
             return
         raw = text
         mode_name = (mode or {}).get("name", "")
@@ -1136,7 +1169,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 # Never lose a dictation over the polish: type the raw text.
                 core.log.warning("polish skipped after %.1fs: %s", time.monotonic() - t1, e)
-                core.notify(f"Typed as spoken — polishing skipped: {str(e)[:120]}", urgency="normal", timeout_ms=4000)
+                core.notify(tr("Typed as spoken — polishing skipped: {err}", err=str(e)[:120]), urgency="normal", timeout_ms=4000)
                 text = raw
         self.bridge.transcribed.emit(text, raw, mode_name)
 
@@ -1145,10 +1178,10 @@ class MainWindow(QMainWindow):
             threading.Thread(target=core.type_text, args=(text,), daemon=True).start()
             if raw and raw != text:
                 tag = f" [{mode_name}]" if mode_name else ""
-                self.last.setPlainText(f"{text}\n\n— as spoken{tag}: {raw}")
+                self.last.setPlainText(text + "\n\n" + tr("— as spoken{tag}: {raw}", tag=tag, raw=raw))
             else:
                 self.last.setPlainText(text)
-        self.set_status("ready", "Ready")
+        self.set_status("ready", tr("Ready"))
 
     def on_notify(self, msg, urgency, timeout_ms):
         if not self.tray:
@@ -1158,7 +1191,7 @@ class MainWindow(QMainWindow):
         self.tray.showMessage("Dictate", msg, icon, timeout_ms)
 
     def on_error(self, msg):
-        self.set_status("error", f"Error: {msg[:80]}")
+        self.set_status("error", tr("Error: {msg}", msg=msg[:80]))
         # The window is usually hidden in the tray, so the status label alone
         # means the dictation fails without anyone noticing.
         threading.Thread(target=core.notify, args=(msg[:200], "critical", 5000), daemon=True).start()
@@ -1222,11 +1255,12 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Dictate")
     app.aboutToQuit.connect(polish.stop_server)
+    i18n.set_language(core.load_config().get("ui_language", "auto"))
     if not acquire_single_instance_lock():
         if core.IS_LINUX:
-            core.notify("Dictate is already running", urgency="low")
+            core.notify(tr("Dictate is already running"), urgency="low")
         else:
-            QMessageBox.information(None, "Dictate", "Dictate is already running.")
+            QMessageBox.information(None, "Dictate", tr("Dictate is already running."))
         sys.exit(0)
     core.setup_logging()
     core.log.info("started")

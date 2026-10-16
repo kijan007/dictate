@@ -15,6 +15,8 @@ import requests
 import sounddevice as sd
 from pynput import keyboard
 
+from i18n import tr
+
 IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
@@ -149,6 +151,7 @@ DEFAULT_CONFIG = {
     "model":                 DEFAULT_MODEL,
     "threshold":             0.0,
     "local_stt_num_threads": 4,    # sherpa-onnx CPU thread count for parakeet_local
+    "ui_language":           "auto",   # auto (system) | en | de
     "yorik_url":             "http://127.0.0.1:8000",  # Yorik base URL (provider "yorik")
     "yorik_token":           "",   # personal API token from Yorik Settings → API tokens
     # Optional polishing of the transcript through a local Gemma 4 model
@@ -260,7 +263,7 @@ def type_text(text):
             keyboard.Controller().type(text)
         except Exception as e:
             log.exception("typing failed")
-            notify(f"Typing failed ({e})", urgency="critical", timeout_ms=5000)
+            notify(tr("Typing failed ({err})", err=e), urgency="critical", timeout_ms=5000)
         return
     on_x11 = os.environ.get("XDG_SESSION_TYPE") == "x11"
     tools = ["xdotool", "ydotool"] if on_x11 else ["ydotool", "xdotool"]
@@ -276,7 +279,7 @@ def type_text(text):
                 )
             if r.returncode != 0:
                 log.error("%s exited with %s — text not typed", tool, r.returncode)
-                notify(f"Typing failed ({tool} exit {r.returncode})", urgency="critical", timeout_ms=5000)
+                notify(tr("Typing failed ({tool} exit {code})", tool=tool, code=r.returncode), urgency="critical", timeout_ms=5000)
             return
         except FileNotFoundError:
             continue

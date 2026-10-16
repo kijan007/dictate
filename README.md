@@ -98,6 +98,10 @@ People speak differently from how they write. With **Settings → Written text �
 - **Your style**: paste a few of your own texts into the "How you write" box and the model matches that voice
 - **Per window**: one line per destination, e.g. `linkedin = Beruflich, aber locker. Kurze Absätze.` The word on the left is looked for in the title and program name of the window that will receive the text. `* = …` is the default. (Window titles are not available on GNOME Wayland, the default applies there.)
 
+**Pie menu — pick a mode while you speak.** With the hotkey held, move the mouse a little in a direction (or tap an arrow key): a translucent circle at the pointer shows the configured modes, e.g. *English* at the top and *Formatted* at the bottom, with *Standard* in the centre. Release, and the dictation is written that way — translated, structured, whatever the mode's instruction says. Only the direction counts, so the pointer may leave the circle; no movement means plain written text. Modes are one line each in Settings (`English = Translate the text into natural English.`), up to eight, the first at 12 o'clock. Push-to-talk only. On GNOME Wayland no window can be drawn at the pointer, so the current mode is shown in the shell's own on-screen display (the volume pill) instead; the gesture itself works the same. The choice never depends on the picture: the main window shows which mode was applied.
+
+Nothing is downloaded on its own. When you switch the feature on and no model is installed, Dictate asks whether you already run one (then it only sends requests there) or whether it should download llama.cpp and Gemma 4; the download button asks once more with the exact size and the free space on the disk.
+
 This is a helper, never a gate: if the model is still loading, too slow (default limit 8 s) or not installed, the raw transcript is typed and a notification says so. The tray menu has a quick on/off switch. The main window shows the written text and, below it, what was said.
 
 **Already running a model?** Set "Model source" to *A server that is already running* and enter the base URL of any OpenAI-compatible server — Ollama (`http://127.0.0.1:11434/v1`), LM Studio (`http://127.0.0.1:1234/v1`), your own `llama-server`, vLLM — plus the model name it expects (e.g. `gemma4:e2b`) and an API key if it wants one. "Test connection" lists the models the server offers. Dictate then downloads nothing and starts nothing; it only sends the prompt. Text leaves your machine only if that URL points to another one.
@@ -196,7 +200,8 @@ The CLI variant only works on X11 for the reasons described above. Use `gui.py` 
   "polish_style": "",
   "polish_vocabulary": "Dirk Winiecki\nParakeet",
   "polish_default_instructions": "",
-  "polish_profiles": [{"match": "linkedin", "instructions": "Beruflich, aber locker."}]
+  "polish_profiles": [{"match": "linkedin", "instructions": "Beruflich, aber locker."}],
+  "polish_modes": [{"name": "English", "instructions": "Translate the text into natural English."}]
 }
 ```
 

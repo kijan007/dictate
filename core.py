@@ -167,6 +167,7 @@ DEFAULT_CONFIG = {
     "polish_vocabulary":     "",       # names and terms, one per line; fixes sound-alike misspellings
     "polish_default_instructions": "", # "" -> polish.DEFAULT_INSTRUCTIONS
     "polish_profiles":       None,     # None -> polish.DEFAULT_PROFILES
+    "polish_modes":          None,     # pie-menu modes; None -> pie.DEFAULT_MODES, [] -> no pie
 }
 
 

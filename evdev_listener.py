@@ -36,6 +36,11 @@ _KEY_MAP = {
     ecodes.KEY_END:        keyboard.Key.end,
     ecodes.KEY_PAGEUP:     keyboard.Key.page_up,
     ecodes.KEY_PAGEDOWN:   keyboard.Key.page_down,
+    # Arrow keys pick a pie-menu mode while the hotkey is held (gui.py).
+    ecodes.KEY_UP:         keyboard.Key.up,
+    ecodes.KEY_DOWN:       keyboard.Key.down,
+    ecodes.KEY_LEFT:       keyboard.Key.left,
+    ecodes.KEY_RIGHT:      keyboard.Key.right,
 }
 for _i in range(1, 13):
     _KEY_MAP[getattr(ecodes, f"KEY_F{_i}")] = getattr(keyboard.Key, f"f{_i}")
@@ -82,10 +87,16 @@ def _find_keyboards():
         if "ydotool" in name:
             d.close()
             continue
-        caps = set(d.capabilities().get(ecodes.EV_KEY, []))
+        all_caps = d.capabilities()
+        caps = set(all_caps.get(ecodes.EV_KEY, []))
         is_keyboard = ecodes.KEY_A in caps and ecodes.KEY_Z in caps and ecodes.KEY_LEFTCTRL in caps
         is_useful_mouse = bool(caps & interesting_side_btns)
-        if is_keyboard or is_useful_mouse:
+        # Any relative pointer (a mouse, not a touchpad) is read as well: its
+        # motion drives the pie menu while the hotkey is held. Motion events
+        # are only forwarded while track_motion is set, so the cost is a
+        # dict lookup per event the rest of the time.
+        is_pointer = ecodes.REL_X in set(all_caps.get(ecodes.EV_REL, []))
+        if is_keyboard or is_useful_mouse or is_pointer:
             devs.append(d)
         else:
             d.close()
@@ -95,9 +106,11 @@ def _find_keyboards():
 class Listener:
     """Drop-in replacement for pynput.keyboard.Listener."""
 
-    def __init__(self, on_press=None, on_release=None):
+    def __init__(self, on_press=None, on_release=None, on_move=None):
         self._on_press = on_press
         self._on_release = on_release
+        self._on_move = on_move          # on_move("rel", dx, dy) from mouse motion
+        self.track_motion = False        # gui.py sets this while the hotkey is held
         self._devices = []
         self._thread = None
         self._stop_r = None
@@ -127,6 +140,16 @@ class Listener:
                         continue
                     try:
                         for ev in d.read():
+                            if ev.type == ecodes.EV_REL:
+                                if self.track_motion and self._on_move and ev.code in (ecodes.REL_X, ecodes.REL_Y):
+                                    try:
+                                        if ev.code == ecodes.REL_X:
+                                            self._on_move("rel", ev.value, 0)
+                                        else:
+                                            self._on_move("rel", 0, ev.value)
+                                    except Exception as e:
+                                        print(f"evdev move callback error: {e}", file=sys.stderr)
+                                continue
                             if ev.type != ecodes.EV_KEY:
                                 continue
                             if ev.value == 2:

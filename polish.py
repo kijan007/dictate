@@ -210,7 +210,25 @@ def free_space_mb(path: Path = None) -> int:
 # Downloads
 
 def _download(url: str, dest: Path, progress_cb: Optional[Callable[[str], None]], label: str) -> None:
-    """Stream url to dest with resume support; progress_cb gets short status lines."""
+    """Stream url to dest, resuming a .part file; progress_cb gets short
+    status lines. A dropped connection (common on multi-GB files) is retried
+    a few times from where it stopped before giving up."""
+    last_err = None
+    for attempt in range(5):
+        try:
+            _download_once(url, dest, progress_cb, label)
+            return
+        except (requests.ConnectionError, requests.Timeout,
+                requests.exceptions.ChunkedEncodingError) as e:
+            last_err = e
+            core.log.warning("download of %s interrupted (attempt %d): %s", label, attempt + 1, e)
+            if progress_cb:
+                progress_cb(f"{label}: connection lost, resuming ...")
+            time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"download of {label} failed after retries: {last_err}")
+
+
+def _download_once(url: str, dest: Path, progress_cb: Optional[Callable[[str], None]], label: str) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     have = part.stat().st_size if part.exists() else 0
@@ -275,12 +293,41 @@ def download_runtime(device: str, progress_cb: Optional[Callable[[str], None]] =
 
 
 def download_model(model_id: str, progress_cb: Optional[Callable[[str], None]] = None) -> Path:
+    """Fetch the pinned GGUF through huggingface_hub, like the Parakeet model.
+    The hub client speaks HF's chunked Xet protocol, resumes and retries on
+    its own; a plain ranged HTTP download of these multi-GB files kept
+    breaking. Progress comes from watching the folder grow."""
     m = MODELS[model_id]
     dest = model_path(model_id)
     if dest.exists():
         return dest
-    url = f"https://huggingface.co/{m['repo']}/resolve/{m['revision']}/{m['file']}"
-    _download(url, dest, progress_cb, m["file"])
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as e:
+        raise RuntimeError("huggingface_hub is not installed — run: pip install huggingface_hub") from e
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    stop = threading.Event()
+
+    def watch():
+        total = m["size_mb"]
+        while not stop.wait(0.5):
+            try:
+                have = sum(p.stat().st_size for p in dest.parent.rglob("*") if p.is_file()) / 1e6
+            except OSError:
+                continue
+            if progress_cb:
+                progress_cb(f"{m['file']}: {min(have, total):.0f} / {total} MB")
+
+    if progress_cb:
+        progress_cb(f"{m['file']}: starting ...")
+    threading.Thread(target=watch, daemon=True).start()
+    try:
+        hf_hub_download(repo_id=m["repo"], filename=m["file"], revision=m["revision"],
+                        local_dir=str(dest.parent))
+    finally:
+        stop.set()
+    if not dest.exists():
+        raise RuntimeError(f"{m['file']} missing after download")
     return dest
 
 
@@ -657,7 +704,7 @@ def _clean(out: str) -> str:
     return out
 
 
-def build_messages(cfg, text: str, app: str, title: str):
+def build_messages(cfg, text: str, app: str, title: str, mode: str = ""):
     system = [SYSTEM_PROMPT]
     vocab = [w.strip() for w in re.split(r"[\n,;]+", cfg.get("polish_vocabulary") or "") if w.strip()]
     if vocab:
@@ -680,6 +727,10 @@ def build_messages(cfg, text: str, app: str, title: str):
     instr = profile_for(cfg, app, title).strip()
     if instr:
         user.append("Notes for this destination: " + instr)
+    if mode and mode.strip():
+        user.append("Special instruction for this dictation, it takes precedence over "
+                    "the general rules (including the one about keeping the language): "
+                    + mode.strip())
     user.append("Dictation: " + text.strip())
     return [
         {"role": "system", "content": "\n\n".join(system)},
@@ -687,7 +738,7 @@ def build_messages(cfg, text: str, app: str, title: str):
     ]
 
 
-def polish(cfg, text: str, app: str = "", title: str = "") -> str:
+def polish(cfg, text: str, app: str = "", title: str = "", mode: str = "") -> str:
     """Return the polished text. Raises when the server is not ready or the
     request fails; the caller then types the raw text."""
     s = get_server(cfg)
@@ -700,7 +751,7 @@ def polish(cfg, text: str, app: str = "", title: str = "") -> str:
     timeout = float(cfg.get("polish_timeout", DEFAULT_TIMEOUT))
     # Written text is rarely longer than the spoken original; allow some slack.
     max_tokens = min(CTX_SIZE // 2, len(text) // 2 + 128)
-    out = s.chat(build_messages(cfg, text, app, title), max_tokens=max_tokens, timeout=timeout)
+    out = s.chat(build_messages(cfg, text, app, title, mode), max_tokens=max_tokens, timeout=timeout)
     out = _clean(out)
     if not out:
         raise RuntimeError("model returned nothing")

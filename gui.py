@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 from PyQt6.QtCore import Qt, QObject, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
@@ -16,7 +16,12 @@ from PyQt6.QtWidgets import (
 from pynput import keyboard, mouse
 
 import core
+import pie
 import polish
+
+# Arrow keys choose a pie-menu mode while the hotkey is held.
+ARROW_KEYS = {keyboard.Key.up: "up", keyboard.Key.down: "down",
+              keyboard.Key.left: "left", keyboard.Key.right: "right"}
 
 
 class PynputListener:
@@ -39,7 +44,8 @@ class PynputListener:
         if getattr(mouse.Button, name, None) is not None
     }
 
-    def __init__(self, on_press, on_release):
+    def __init__(self, on_press, on_release, on_move=None):
+        self.track_motion = False        # set while the hotkey is held
         self._kb = keyboard.Listener(on_press=on_press, on_release=on_release)
         self._kb.daemon = True
 
@@ -50,7 +56,11 @@ class PynputListener:
             cb = on_press if pressed else on_release
             cb(key)
 
-        self._mouse = mouse.Listener(on_click=on_click)
+        def on_mouse_move(x, y):
+            if self.track_motion and on_move:
+                on_move("abs", x, y)
+
+        self._mouse = mouse.Listener(on_click=on_click, on_move=on_mouse_move)
         self._mouse.daemon = True
 
     def start(self):
@@ -65,19 +75,19 @@ class PynputListener:
                 pass
 
 
-def _make_listener(on_press, on_release):
+def _make_listener(on_press, on_release, on_move=None):
     """Linux: prefer evdev (works on Wayland+Xorg), fall back to pynput.
     Windows/macOS: pynput straight away, there is no /dev/input."""
     if core.IS_LINUX:
         try:
             import evdev_listener
-            l = evdev_listener.Listener(on_press=on_press, on_release=on_release)
+            l = evdev_listener.Listener(on_press=on_press, on_release=on_release, on_move=on_move)
             l.start()
             core.log.info("keyboard listener: evdev")
             return l
         except Exception as e:
             core.log.warning("evdev unavailable (%s); falling back to pynput", e)
-    l = PynputListener(on_press, on_release)
+    l = PynputListener(on_press, on_release, on_move)
     l.start()
     core.log.info("keyboard listener: pynput")
     return l
@@ -87,8 +97,9 @@ class Bridge(QObject):
     hotkey_press = pyqtSignal()
     hotkey_release = pyqtSignal()
     other_press = pyqtSignal()
-    transcribed = pyqtSignal(str, str)   # final text, raw transcript
+    transcribed = pyqtSignal(str, str, str)   # final text, raw transcript, mode name
     polishing = pyqtSignal()
+    mode_changed = pyqtSignal(object)         # pie segment index or None
     error = pyqtSignal(str)
     notify = pyqtSignal(str, str, int)   # msg, urgency, timeout_ms
 
@@ -219,12 +230,12 @@ class SettingsDialog(QDialog):
         v1.addWidget(self.hint)
         v1.addStretch()
 
-        tabs = QTabWidget()
-        tabs.addTab(page1, "Transcription")
-        tabs.addTab(self._build_polish_page(), "Written text")
+        self.tabs = QTabWidget()
+        self.tabs.addTab(page1, "Transcription")
+        self.tabs.addTab(self._build_polish_page(), "Written text")
 
         layout = QVBoxLayout(self)
-        layout.addWidget(tabs)
+        layout.addWidget(self.tabs)
         layout.addWidget(buttons)
 
         # Wire the download-worker bridges, then sync UI to current provider.
@@ -245,6 +256,7 @@ class SettingsDialog(QDialog):
 
         self.pl_enabled = QCheckBox("Turn the dictation into written text before typing it")
         self.pl_enabled.setChecked(bool(cfg.get("polish_enabled", False)))
+        self.pl_enabled.toggled.connect(self.on_polish_toggled)
         self.pl_enabled.setToolTip(
             "Optional. A local Gemma 4 model (llama.cpp) removes filler words and\n"
             "false starts, fixes punctuation and spelling, and keeps your wording.\n"
@@ -356,7 +368,26 @@ class SettingsDialog(QDialog):
             "the default line is used there."
         )
         v.addWidget(self.pl_profiles_edit)
+
+        lbl = QLabel("Pie menu — hold the hotkey and move the mouse towards a mode (or tap an arrow key). "
+                     "One per line, \"Name = instructions\"; empty = no pie menu:")
+        lbl.setWordWrap(True)
+        v.addWidget(lbl)
+        self.pl_modes_edit = QPlainTextEdit(self._modes_to_text(cfg))
+        self.pl_modes_edit.setMaximumHeight(80)
+        self.pl_modes_edit.setToolTip(
+            "The first mode sits at 12 o'clock, the rest follow clockwise. No\n"
+            "movement = plain written text. Only the direction counts, the pointer\n"
+            "may leave the circle. Arrow keys pick the nearest segment; with a\n"
+            "modifier as hotkey prefer the mouse, since Ctrl+Arrow also reaches\n"
+            "the program you are typing into."
+        )
+        v.addWidget(self.pl_modes_edit)
         return page
+
+    @staticmethod
+    def _modes_to_text(cfg):
+        return "\n".join(f"{m.get('name', '')} = {m.get('instructions', '')}" for m in pie.modes_for(cfg))
 
     @staticmethod
     def _profiles_to_text(cfg):
@@ -379,7 +410,15 @@ class SettingsDialog(QDialog):
                 default = instr
             elif m:
                 profiles.append({"match": m, "instructions": instr})
+        modes = []
+        for line in self.pl_modes_edit.toPlainText().splitlines():
+            if "=" not in line:
+                continue
+            name, instr = line.split("=", 1)
+            if name.strip():
+                modes.append({"name": name.strip(), "instructions": instr.strip()})
         return {
+            "polish_modes":    modes,
             "polish_enabled":  self.pl_enabled.isChecked(),
             "polish_backend":  self.pl_backend_box.currentData(),
             "polish_external_url":   self.pl_ext_url.text().strip(),
@@ -430,7 +469,66 @@ class SettingsDialog(QDialog):
             self.pl_download_btn.setText(f"Download (~{need / 1000:.1f} GB)")
         self.pl_download_btn.setEnabled(True)
 
+    def _ask_model_source(self):
+        """Nothing is installed and the user just switched polishing on. Most
+        people already run a model somewhere; ask before fetching gigabytes.
+        Returns 'external', 'download' or 'cancel'."""
+        pc = self._polish_cfg()
+        need = polish.download_size_mb(pc) / 1000
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Dictate — written text")
+        box.setText("Written text needs a language model.")
+        box.setInformativeText(
+            "Do you already run one (Ollama, LM Studio, llama-server, vLLM …)? Then Dictate "
+            "only sends requests to it and downloads nothing.\n\n"
+            f"Otherwise Dictate can download llama.cpp and Gemma 4 (about {need:.1f} GB) into "
+            f"{polish.RUNTIME_DIR.parent}. Nothing is downloaded until you confirm."
+        )
+        b_ext = box.addButton("Use my running server", QMessageBox.ButtonRole.AcceptRole)
+        b_dl = box.addButton(f"Download Gemma 4 ({need:.1f} GB)", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is b_ext:
+            return "external"
+        if box.clickedButton() is b_dl:
+            return "download"
+        return "cancel"
+
+    def on_polish_toggled(self, on):
+        if not on or polish.installed(self._polish_cfg()):
+            return
+        choice = self._ask_model_source()
+        if choice == "external":
+            self.pl_backend_box.setCurrentIndex(self.pl_backend_box.findData("external"))
+            self.pl_ext_url.setFocus()
+        elif choice == "download":
+            self.pl_backend_box.setCurrentIndex(self.pl_backend_box.findData("builtin"))
+            self._start_polish_download()
+        else:
+            self.pl_enabled.blockSignals(True)
+            self.pl_enabled.setChecked(False)
+            self.pl_enabled.blockSignals(False)
+
     def on_download_polish(self):
+        pc = self._polish_cfg()
+        need = polish.download_size_mb(pc)
+        free = polish.free_space_mb()
+        if need:
+            ok = QMessageBox.question(
+                self, "Dictate — download",
+                f"Download about {need / 1000:.1f} GB (llama.cpp {polish.LLAMA_BUILD} for "
+                f"{polish.resolve_device(pc['polish_device'])} and "
+                f"{polish.MODELS[pc['polish_model']]['label'].split(' (')[0]}) into\n"
+                f"{polish.RUNTIME_DIR.parent}?\n\n{free / 1000:.1f} GB free on that disk.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if ok != QMessageBox.StandardButton.Yes:
+                return
+        self._start_polish_download()
+
+    def _start_polish_download(self):
         self.pl_download_btn.setEnabled(False)
         self.pl_download_btn.setText("Downloading...")
         self.pl_status_label.setText("Starting download...")
@@ -651,8 +749,16 @@ class MainWindow(QMainWindow):
         self.bridge.other_press.connect(self.on_other_press)
         self.bridge.transcribed.connect(self.on_transcribed)
         self.bridge.polishing.connect(lambda: self.set_status("transcribing", "Polishing..."))
+        self.bridge.mode_changed.connect(self.on_mode_changed)
         self.bridge.error.connect(self.on_error)
         self.bridge.notify.connect(self.on_notify)
+        # Pie menu: the tracker runs on listener threads, the overlay on this one.
+        self.tracker = pie.GestureTracker(lambda seg: self.bridge.mode_changed.emit(seg))
+        self._pie = None
+        self._pie_modes = []
+        self._pie_timer = QTimer(self)
+        self._pie_timer.setInterval(33)
+        self._pie_timer.timeout.connect(self._pie_tick)
         self.key_held = False
         self.combo = False
         self.recording_active = False
@@ -674,7 +780,7 @@ class MainWindow(QMainWindow):
         header.addWidget(title)
         header.addStretch()
         self.settings_btn = QPushButton("Settings")
-        self.settings_btn.clicked.connect(self.open_settings)
+        self.settings_btn.clicked.connect(lambda: self.open_settings())
         header.addWidget(self.settings_btn)
         v.addLayout(header)
 
@@ -746,12 +852,19 @@ class MainWindow(QMainWindow):
             self.on_error(f"Polishing: {e}")
 
     def on_toggle_polish(self, on):
+        if on and not polish.installed(self.cfg):
+            # No model yet: let Settings ask whether to use a running server or
+            # download one. The tray switch follows whatever gets saved there.
+            self.a_polish.blockSignals(True)
+            self.a_polish.setChecked(False)
+            self.a_polish.blockSignals(False)
+            self.show_window()
+            self.open_settings(tab=1)
+            return
         self.cfg["polish_enabled"] = bool(on)
         core.save_config(self.cfg)
         self.update_info()
         self._start_polish_if_needed()
-        if on and not polish.installed(self.cfg):
-            core.notify("Polishing is not installed yet — open Settings → Written text", urgency="normal", timeout_ms=4000)
 
     def _preload_local_if_needed(self):
         """Kick off the parakeet recognizer load in the background so the first
@@ -789,8 +902,9 @@ class MainWindow(QMainWindow):
             f"Model: {self.cfg['model']}{thr_str}{pol}"
         )
 
-    def open_settings(self):
+    def open_settings(self, tab=0):
         dlg = SettingsDialog(self.cfg, self)
+        dlg.tabs.setCurrentIndex(tab)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.cfg.update(dlg.values())
             core.save_config(self.cfg)
@@ -813,6 +927,9 @@ class MainWindow(QMainWindow):
             try:
                 if k in self._target_keys:
                     self.bridge.hotkey_press.emit()
+                elif self.tracker.active and k in ARROW_KEYS:
+                    # Picks a pie-menu mode instead of cancelling the recording.
+                    self.tracker.set_segment(pie.segment_for_arrow(ARROW_KEYS[k], self.tracker.n))
                 else:
                     self._last_other = k
                     self.bridge.other_press.emit()
@@ -826,7 +943,13 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self.listener = _make_listener(on_press, on_release)
+        def on_move(kind, a, b):
+            if kind == "abs":
+                self.tracker.abs_move(a, b)
+            else:
+                self.tracker.rel_move(a, b)
+
+        self.listener = _make_listener(on_press, on_release, on_move)
 
     def restart_listener(self):
         if self.listener:
@@ -846,6 +969,7 @@ class MainWindow(QMainWindow):
         if self.cfg["mode"] == "ptt":
             if self.start_recording():
                 self.recording_active = True
+                self._pie_start()
         else:
             if self.recording_active:
                 self.stop_and_transcribe()
@@ -862,6 +986,7 @@ class MainWindow(QMainWindow):
         # that was started by a previous tap.
         if self.cfg["mode"] == "ptt" and self.recording_active:
             # Offload PipeWire close to keep the GUI thread responsive.
+            self._pie_stop()
             self._discard_take()
             self.recording_active = False
             self.set_status("ready", "Cancelled (combo)")
@@ -876,6 +1001,7 @@ class MainWindow(QMainWindow):
 
     def on_release(self):
         self.key_held = False
+        mode = self._pie_stop()
         if self.cfg["mode"] != "ptt":
             return
         if not self.recording_active:
@@ -888,8 +1014,55 @@ class MainWindow(QMainWindow):
             self.recording_active = False
             self.set_status("ready", f"Discarded (held {duration:.1f}s)")
             return
-        self.stop_and_transcribe()
+        self.stop_and_transcribe(mode)
         self.recording_active = False
+
+    # ------------------------------------------------------------------ pie menu
+    def _pie_start(self):
+        """Hotkey went down: start reading the pointer, show the circle."""
+        if not self.cfg.get("polish_enabled"):
+            return
+        modes = pie.modes_for(self.cfg)
+        if not modes:
+            return
+        self._pie_modes = modes
+        overlay = pie.use_overlay()
+        pos = QCursor.pos() if overlay else None
+        self.tracker.start(len(modes), origin=(pos.x(), pos.y()) if pos is not None else None)
+        if self.listener is not None:
+            self.listener.track_motion = True
+        if overlay:
+            if self._pie is None:
+                self._pie = pie.PieOverlay()
+            self._pie.show_at(modes, pos)
+            self._pie_timer.start()
+        else:
+            pie.gnome_osd("Standard")
+
+    def _pie_stop(self):
+        """Hotkey released or recording cancelled. Returns the chosen mode
+        dict or None for plain written text."""
+        if self.listener is not None:
+            self.listener.track_motion = False
+        seg = self.tracker.stop() if self.tracker.active else None
+        self._pie_timer.stop()
+        if self._pie is not None and self._pie.isVisible():
+            self._pie.hide()
+        if seg is None or seg >= len(self._pie_modes):
+            return None
+        return self._pie_modes[seg]
+
+    def _pie_tick(self):
+        if self._pie is not None and self._pie.isVisible():
+            self._pie.set_state(self.tracker.segment, self.tracker.vector())
+
+    def on_mode_changed(self, seg):
+        name = self._pie_modes[seg]["name"] if seg is not None and seg < len(self._pie_modes) else "Standard"
+        if self._pie is not None and self._pie.isVisible():
+            self._pie.set_state(seg, self.tracker.vector())
+        elif not pie.use_overlay():
+            pie.gnome_osd(name)
+        self.set_status("recording", f"Recording... ({name})" if seg is not None else "Recording...")
 
     def start_recording(self) -> bool:
         if not core.provider_key(self.cfg):
@@ -904,7 +1077,7 @@ class MainWindow(QMainWindow):
         self.set_status("recording", "Recording...")
         return True
 
-    def stop_and_transcribe(self):
+    def stop_and_transcribe(self, mode=None):
         # recorder.stop() can block for hundreds of ms on PipeWire close,
         # which freezes the GUI ("main on_release doesn't return"). Move the
         # whole pipeline (stop + transcribe) onto a worker thread and update
@@ -916,13 +1089,13 @@ class MainWindow(QMainWindow):
         take = self.recorder.detach()
         # The window that has the focus now is the one that gets the text.
         ctx = polish.active_window() if self.cfg.get("polish_enabled") else ("", "")
-        threading.Thread(target=self._stop_and_transcribe_worker, args=(take, ctx), daemon=True).start()
+        threading.Thread(target=self._stop_and_transcribe_worker, args=(take, ctx, mode), daemon=True).start()
 
     def _discard_take(self):
         take = self.recorder.detach()
         threading.Thread(target=core.Recorder.finish, args=(take,), daemon=True).start()
 
-    def _stop_and_transcribe_worker(self, take, ctx=("", "")):
+    def _stop_and_transcribe_worker(self, take, ctx=("", ""), mode=None):
         # Short trailing buffer: PipeWire has ~50-100ms input latency and
         # people typically finish the last syllable *after* they release the
         # hotkey. Without this the last word tends to get clipped.
@@ -951,25 +1124,28 @@ class MainWindow(QMainWindow):
             self.bridge.error.emit(f"Nothing transcribed ({secs:.0f}s) — {why}")
             return
         raw = text
+        mode_name = (mode or {}).get("name", "")
         if self.cfg.get("polish_enabled"):
             self.bridge.polishing.emit()
             t1 = time.monotonic()
             try:
-                text = polish.polish(self.cfg, raw, *ctx)
-                core.log.info("polished %d -> %d chars in %.1fs (%s)", len(raw), len(text),
-                              time.monotonic() - t1, ctx[0] or "no window")
+                text = polish.polish(self.cfg, raw, *ctx, mode=(mode or {}).get("instructions", ""))
+                core.log.info("polished %d -> %d chars in %.1fs (%s%s)", len(raw), len(text),
+                              time.monotonic() - t1, ctx[0] or "no window",
+                              f", mode {mode_name}" if mode_name else "")
             except Exception as e:
                 # Never lose a dictation over the polish: type the raw text.
                 core.log.warning("polish skipped after %.1fs: %s", time.monotonic() - t1, e)
                 core.notify(f"Typed as spoken — polishing skipped: {str(e)[:120]}", urgency="normal", timeout_ms=4000)
                 text = raw
-        self.bridge.transcribed.emit(text, raw)
+        self.bridge.transcribed.emit(text, raw, mode_name)
 
-    def on_transcribed(self, text, raw=""):
+    def on_transcribed(self, text, raw="", mode_name=""):
         if text:
             threading.Thread(target=core.type_text, args=(text,), daemon=True).start()
             if raw and raw != text:
-                self.last.setPlainText(f"{text}\n\n— as spoken: {raw}")
+                tag = f" [{mode_name}]" if mode_name else ""
+                self.last.setPlainText(f"{text}\n\n— as spoken{tag}: {raw}")
             else:
                 self.last.setPlainText(text)
         self.set_status("ready", "Ready")
